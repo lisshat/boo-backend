@@ -47,7 +47,6 @@ export class OnboardProviderDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(200)
   @MaxLength(500)
   bio?: string;
 
