@@ -129,7 +129,11 @@ export class BookingsService {
         b.status,
         s.service_name,
         s.category,
-        s.price::numeric    AS price,
+        CASE
+          WHEN s.pricing_unit = 'per_hour'
+            THEN s.price::numeric * (s.duration_minutes::numeric / 60.0)
+          ELSE s.price::numeric
+        END AS price,
         u.full_name         AS owner_name
       FROM bookings b
       JOIN services s ON s.service_id = b.service_id
