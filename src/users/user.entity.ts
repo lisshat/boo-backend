@@ -25,6 +25,12 @@ export class User {
   @Column({ default: 'owner' })
   role: UserRole;
 
+  @Column({ name: 'is_banned', default: false })
+  isBanned: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  location: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -41,6 +41,9 @@ export class ServiceOffering {
   @Column({ name: 'price', type: 'decimal', precision: 10, scale: 2 })
   price!: number;
 
+  @Column({ name: 'pricing_unit', type: 'varchar', default: 'per session' })
+  pricingUnit!: string;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 

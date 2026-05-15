@@ -1,7 +1,20 @@
+import { IsISO8601, IsOptional, IsString, IsUUID } from 'class-validator';
+
 export class CreateBookingDto {
+  @IsUUID()
   providerId!: string;
+
+  @IsUUID()
   serviceId!: string;
+
+  @IsUUID()
+  @IsOptional()
   petId?: string;
-  bookingDatetime!: string; // ISO 8601 datetime string
+
+  @IsISO8601()
+  bookingDatetime!: string;
+
+  @IsString()
+  @IsOptional()
   notes?: string;
 }

@@ -1,3 +1,7 @@
+import { IsDateString, IsNotEmpty } from 'class-validator';
+
 export class RescheduleBookingDto {
-  rescheduledAt!: Date;
+  @IsDateString()
+  @IsNotEmpty()
+  newDatetime!: string;
 }

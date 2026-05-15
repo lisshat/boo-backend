@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Repository } from 'typeorm';
+import { User } from '../users/user.entity';
 
 export interface JwtPayload {
   sub: string;
@@ -11,7 +14,10 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -19,7 +25,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload) {
+  async validate(payload: JwtPayload) {
+    const user = await this.userRepo.findOneBy({ id: payload.sub });
+    if (!user) throw new UnauthorizedException();
+    if (user.isBanned) {
+      throw new ForbiddenException({ message: 'Your account has been suspended. Contact support.', code: 'ACCOUNT_SUSPENDED' });
+    }
     return { id: payload.sub, email: payload.email, role: payload.role };
   }
 }

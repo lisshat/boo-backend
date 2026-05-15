@@ -1,10 +1,13 @@
-import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsNotEmpty, MaxLength, Min, Max } from 'class-validator';
 
 export class CreatePetDto {
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   name!: string;
 
   @IsString()
+  @IsNotEmpty()
   species!: string;
 
   @IsOptional()

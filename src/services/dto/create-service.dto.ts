@@ -1,29 +1,32 @@
-import { IsString, IsNotEmpty, IsIn, IsNumber, IsBoolean, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
-export class CreateServiceDto{  
-    @IsString()
-    @IsNotEmpty()
-    serviceName : string;
+export class CreateServiceDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  serviceName!: string;
 
-    @IsIn(['veterinary','grooming','training','boarding','sitting','other'])
-    @IsNotEmpty()
-    category: string;
+  @IsIn(['veterinary', 'grooming', 'training', 'boarding', 'sitting', 'other'])
+  @IsNotEmpty()
+  category!: string;
 
-    @Min(0)
-    @IsNotEmpty()
-    @IsNumber()
-    price: number;
+  @Min(0)
+  @IsNumber()
+  price!: number;
 
-    @IsString()
-    @IsOptional()
-    description: string;
+  @IsString()
+  @IsOptional()
+  description?: string;
 
-    @IsBoolean()
-    @IsOptional()
-    isActive: boolean;
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 
-    @Min(1)
-    @IsNotEmpty()
-    @IsNumber()
-    durationMinutes: number;
+  @Min(1)
+  @IsInt()
+  durationMinutes!: number;
+
+  @IsIn(['per_hour', 'per_night', 'per_day', 'per_session'])
+  @IsOptional()
+  pricingUnit?: string;
 }

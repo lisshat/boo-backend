@@ -7,15 +7,17 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { User } from '../users/user.entity';
+import { StreamService } from '../stream/stream.service';
+import { PasswordResetToken } from './password-reset-token.entity';
 
 @Module({
   imports: [
     ConfigModule,
     PassportModule,
     JwtModule.register({}), // secrets provided per-call in AuthService
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, PasswordResetToken]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, StreamService],
 })
 export class AuthModule {}

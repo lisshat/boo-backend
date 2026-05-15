@@ -2,7 +2,11 @@ import {
   IsString,
   IsOptional,
   IsNumber,
+  IsInt,
   IsIn,
+  IsNotEmpty,
+  MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -13,12 +17,16 @@ class ServiceDto {
   category!: string;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   serviceName!: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   durationMinutes!: number;
 
   @IsNumber()
+  @Min(0)
   price!: number;
 
   @IsOptional()
@@ -28,6 +36,8 @@ class ServiceDto {
 
 export class OnboardProviderDto {
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
   businessName!: string;
 
   @IsOptional()
