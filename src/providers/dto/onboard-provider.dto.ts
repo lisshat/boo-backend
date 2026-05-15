@@ -6,6 +6,7 @@ import {
   IsIn,
   IsNotEmpty,
   MaxLength,
+  MinLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -30,6 +31,10 @@ class ServiceDto {
   price!: number;
 
   @IsOptional()
+  @IsIn(['per_hour', 'per_night', 'per_day', 'per_session'])
+  pricingUnit?: string;
+
+  @IsOptional()
   @IsString()
   description?: string;
 }
@@ -42,6 +47,8 @@ export class OnboardProviderDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(200)
+  @MaxLength(500)
   bio?: string;
 
   @IsOptional()

@@ -106,6 +106,7 @@ export class ProvidersService {
       category: dto.service.category as ServiceCategory,
       durationMinutes: dto.service.durationMinutes,
       price: dto.service.price,
+      pricingUnit: dto.service.pricingUnit ?? 'per_session',
       description: dto.service.description ?? null,
     });
     await this.serviceRepo.save(service);
