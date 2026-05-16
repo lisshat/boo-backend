@@ -44,13 +44,12 @@ export class ProvidersService {
 
     if (radiusKm > 0) {
       qb.where(
-        `(p.latitude IS NULL OR (
+        `(p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND
           6371.0 * acos(LEAST(1.0,
             cos(radians(:lat)) * cos(radians(p.latitude::double precision))
             * cos(radians(p.longitude::double precision) - radians(:lng))
             + sin(radians(:lat)) * sin(radians(p.latitude::double precision))
-          ))
-        ) <= :radius)`,
+          )) <= :radius)`,
         { lat, lng, radius: radiusKm },
       );
     }
