@@ -45,6 +45,7 @@ export class AuthController {
     return this.authService.resetPassword(dto);
   }
 
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('refresh')
   refresh(@Body('refreshToken') token: string) {
     return this.authService.refresh(token);

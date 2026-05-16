@@ -9,13 +9,14 @@ import { JwtStrategy } from './jwt.strategy';
 import { User } from '../users/user.entity';
 import { StreamService } from '../stream/stream.service';
 import { PasswordResetToken } from './password-reset-token.entity';
+import { Provider } from '../providers/providers.entity';
 
 @Module({
   imports: [
     ConfigModule,
     PassportModule,
     JwtModule.register({}), // secrets provided per-call in AuthService
-    TypeOrmModule.forFeature([User, PasswordResetToken]),
+    TypeOrmModule.forFeature([User, PasswordResetToken, Provider]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, StreamService],

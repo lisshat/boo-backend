@@ -21,6 +21,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { PasswordResetToken } from './password-reset-token.entity';
 import { StreamService } from '../stream/stream.service';
+import { Provider } from '../providers/providers.entity';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +32,8 @@ export class AuthService {
     private readonly usersRepo: Repository<User>,
     @InjectRepository(PasswordResetToken)
     private readonly passwordResetTokensRepo: Repository<PasswordResetToken>,
+    @InjectRepository(Provider)
+    private readonly providersRepo: Repository<Provider>,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly streamService: StreamService,
@@ -100,7 +103,13 @@ export class AuthService {
 
     const tokens = this.issueTokens(user);
     const streamToken = this.streamService.generateStreamToken(user.id);
-    await this.streamService.upsertStreamUser(user.id, user.fullName, user.role);
+
+    let isVerified: boolean | undefined;
+    if (user.role === 'provider') {
+      const profile = await this.providersRepo.findOne({ where: { userId: user.id } });
+      isVerified = profile?.isVerified ?? false;
+    }
+    await this.streamService.upsertStreamUser(user.id, user.fullName, user.role, isVerified);
 
     return {
       ...tokens,
