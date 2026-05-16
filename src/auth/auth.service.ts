@@ -222,7 +222,7 @@ export class AuthService {
     const name = this.escapeHtml(user.fullName || 'there');
     const resend = new Resend(apiKey);
 
-    await resend.emails.send({
+    const resendResult = await resend.emails.send({
       from,
       to: user.email,
       subject: 'Reset your Boo password',
@@ -241,6 +241,7 @@ export class AuthService {
   <small>Boo Pet Care Platform | support@boo.co.ke</small>
 </div>`,
     });
+    this.logger.log(`Resend result for ${user.email}: ${JSON.stringify(resendResult)}`);
   }
 
   private escapeHtml(value: string) {

@@ -17,12 +17,18 @@ export class StreamService {
     this.client = StreamChat.getInstance(apiKey, apiSecret);
   }
 
-  async upsertStreamUser(id: string, name: string | null, role: string) {
+  async upsertStreamUser(
+    id: string,
+    name: string | null,
+    role: string,
+    isVerified?: boolean,
+  ) {
     const streamRole = role === 'admin' ? 'admin' : 'user';
     await this.client.upsertUser({
       id,
       name: name ?? '',
       role: streamRole,
+      ...(isVerified !== undefined ? { isVerified } : {}),
     });
   }
 

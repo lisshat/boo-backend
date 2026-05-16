@@ -10,6 +10,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Provider, VerificationStatus } from '../providers/providers.entity';
 import { ServiceOffering } from '../providers/service-offering.entity';
 import { Review } from '../reviews/review.entity';
+import { StreamService } from '../stream/stream.service';
 import { User, UserRole } from '../users/user.entity';
 import {
   VerificationDocument,
@@ -39,6 +40,7 @@ export class AdminService {
     @InjectRepository(AdminAuditLog)
     private readonly auditRepo: Repository<AdminAuditLog>,
     private readonly notificationsService: NotificationsService,
+    private readonly streamService: StreamService,
   ) {}
 
   async logAdminAction(
@@ -198,6 +200,10 @@ export class AdminService {
         verificationStatus: VerificationStatus.REJECTED,
         isVerified: false,
       });
+      const user = await this.usersRepo.findOne({ where: { id: provider.userId } });
+      if (user) {
+        await this.streamService.upsertStreamUser(user.id, user.fullName, user.role, false);
+      }
       await this.notificationsService.createNotification(
         provider.userId,
         'verification_rejected',
@@ -212,6 +218,10 @@ export class AdminService {
         verificationStatus: VerificationStatus.APPROVED,
         isVerified: true,
       });
+      const user = await this.usersRepo.findOne({ where: { id: provider.userId } });
+      if (user) {
+        await this.streamService.upsertStreamUser(user.id, user.fullName, user.role, true);
+      }
       await this.notificationsService.createNotification(
         provider.userId,
         'verification_approved',
