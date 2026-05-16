@@ -299,13 +299,16 @@ export class BookingsService {
       this.bookingRepo.count({
         where: { providerId: provider.id, status: BookingStatus.COMPLETED },
       }),
-      // Today's schedule: show BOTH pending and accepted so provider sees what's coming
+      // Dashboard section: all pending requests (any date) + today's accepted bookings
       this.bookingRepo.find({
-        where: {
-          providerId: provider.id,
-          status: In([BookingStatus.PENDING, BookingStatus.ACCEPTED]),
-          bookingDatetime: Between(startOfDay, endOfDay),
-        },
+        where: [
+          { providerId: provider.id, status: BookingStatus.PENDING },
+          {
+            providerId: provider.id,
+            status: BookingStatus.ACCEPTED,
+            bookingDatetime: Between(startOfDay, endOfDay),
+          },
+        ],
         relations: ['service', 'owner'],
         order: { bookingDatetime: 'ASC' },
       }),
