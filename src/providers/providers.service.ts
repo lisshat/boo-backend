@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { Provider, VerificationStatus } from './providers.entity';
 import { ServiceOffering, ServiceCategory } from './service-offering.entity';
 import { ProviderAvailability } from './provider-availability.entity';
@@ -30,20 +30,110 @@ export class ProvidersService {
     private readonly streamService: StreamService,
   ) {}
 
-  findAll(): Promise<Provider[]> {
-    return this.providerRepo.find({
-      relations: ['services'],
-      order: { averageRating: 'DESC' },
+  // ── Ranking helpers ─────────────────────────────────────────────────────────
+
+  private getVerificationBoost(
+    verificationStatus: string,
+    isVerified: boolean,
+  ): number {
+    if (isVerified === true || verificationStatus === VerificationStatus.APPROVED) {
+      return 1.0;
+    }
+    if (verificationStatus === VerificationStatus.PENDING) {
+      return 0.3;
+    }
+    return 0.0; // unsubmitted or anything else
+    // Future: IDENTITY_VERIFIED (+0.7) when that tier is added
+  }
+
+  private calculateRecommendedScore(
+    averageRating: number | null,
+    verificationStatus: string,
+    isVerified: boolean,
+  ): number {
+    const rating = averageRating != null ? Number(averageRating) : 0;
+    return rating + this.getVerificationBoost(verificationStatus, isVerified);
+  }
+
+  private haversineKm(
+    lat1: number,
+    lng1: number,
+    lat2: number | null,
+    lng2: number | null,
+  ): number {
+    if (lat2 == null || lng2 == null) return Infinity;
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private sortByRecommended(
+    providers: Provider[],
+    lat?: number,
+    lng?: number,
+  ): (Provider & { recommendedScore: number })[] {
+    const withScore = providers.map((p) => ({
+      ...p,
+      recommendedScore: this.calculateRecommendedScore(
+        p.averageRating,
+        p.verificationStatus,
+        p.isVerified,
+      ),
+    }));
+
+    return withScore.sort((a, b) => {
+      // 1. recommendedScore DESC
+      if (b.recommendedScore !== a.recommendedScore) {
+        return b.recommendedScore - a.recommendedScore;
+      }
+      // 2. rating DESC
+      const rA = Number(a.averageRating ?? 0);
+      const rB = Number(b.averageRating ?? 0);
+      if (rB !== rA) return rB - rA;
+      // 3. totalReviews DESC
+      if (b.totalReviews !== a.totalReviews) {
+        return b.totalReviews - a.totalReviews;
+      }
+      // 4. distance ASC (only when caller has a position)
+      if (lat != null && lng != null) {
+        const dA = this.haversineKm(lat, lng, Number(a.latitude), Number(a.longitude));
+        const dB = this.haversineKm(lat, lng, Number(b.latitude), Number(b.longitude));
+        if (dA !== dB) return dA - dB;
+      }
+      return 0;
     });
   }
 
-  async findNearby(lat: number, lng: number, radiusKm: number): Promise<Provider[]> {
+  // ── Listing queries ──────────────────────────────────────────────────────────
+
+  async findAll(): Promise<(Provider & { recommendedScore: number })[]> {
+    const providers = await this.providerRepo.find({
+      where: { verificationStatus: Not(VerificationStatus.REJECTED) },
+      relations: ['services'],
+    });
+    return this.sortByRecommended(providers);
+  }
+
+  async findNearby(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+  ): Promise<(Provider & { recommendedScore: number })[]> {
     const qb = this.providerRepo
       .createQueryBuilder('p')
-      .leftJoinAndSelect('p.services', 'services');
+      .leftJoinAndSelect('p.services', 'services')
+      .where('p.verificationStatus != :rejected', {
+        rejected: VerificationStatus.REJECTED,
+      });
 
     if (radiusKm > 0) {
-      qb.where(
+      qb.andWhere(
         `(p.latitude IS NULL OR p.longitude IS NULL OR
           6371.0 * acos(LEAST(1.0,
             cos(radians(:lat)) * cos(radians(p.latitude::double precision))
@@ -54,7 +144,8 @@ export class ProvidersService {
       );
     }
 
-    return qb.orderBy('p.averageRating', 'DESC').getMany();
+    const providers = await qb.getMany();
+    return this.sortByRecommended(providers, lat, lng);
   }
 
   async findOne(id: string): Promise<Provider> {
