@@ -33,6 +33,14 @@ export class ReviewsService {
     if (booking.status !== BookingStatus.COMPLETED)
       throw new BadRequestException('Can only review completed bookings');
 
+    // One review per owner per provider — stricter than per-booking
+    const existingForProvider = await this.reviewRepo.findOne({
+      where: { ownerId, providerId: booking.providerId },
+    });
+    if (existingForProvider) {
+      throw new ConflictException('You have already reviewed this provider');
+    }
+
     const existing = await this.reviewRepo.findOne({
       where: { bookingId: dto.bookingId },
     });
