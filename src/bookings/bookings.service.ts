@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, In, IsNull, Repository } from 'typeorm';
 import { Booking, BookingStatus } from './bookings.entity';
 import { Provider } from '../providers/providers.entity';
 import { User } from '../users/user.entity';
 import { ProviderAvailability } from '../providers/provider-availability.entity';
+import { Review } from '../reviews/review.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 
@@ -19,6 +20,8 @@ export class BookingsService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(ProviderAvailability)
     private readonly availabilityRepo: Repository<ProviderAvailability>,
+    @InjectRepository(Review)
+    private readonly reviewRepo: Repository<Review>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -99,12 +102,25 @@ export class BookingsService {
     return booking;
   }
 
-  async getBookings(ownerId: string): Promise<Booking[]> {
-    return this.bookingRepo.find({
-      where: { ownerId },
-      relations: ['provider', 'service'],
-      order: { createdAt: 'DESC' },
-    });
+  async getBookings(
+    ownerId: string,
+  ): Promise<(Booking & { hasReview: boolean; reviewRating: number | null })[]> {
+    const [bookings, reviews] = await Promise.all([
+      this.bookingRepo.find({
+        where: { ownerId },
+        relations: ['provider', 'service'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.reviewRepo.find({ where: { ownerId } }),
+    ]);
+
+    const reviewMap = new Map(reviews.map((r) => [r.bookingId, r.rating]));
+
+    return bookings.map((b) => ({
+      ...b,
+      hasReview: reviewMap.has(b.bookingId),
+      reviewRating: reviewMap.get(b.bookingId) ?? null,
+    }));
   }
 
   async getProviderBookings(userId: string): Promise<Booking[]> {
@@ -361,6 +377,37 @@ export class BookingsService {
       `Your booking was declined by the provider.${reasonText}`,
       bookingId,
     );
+
+    // Track unreasoned declines and warn at thresholds
+    const unreasonedCount = await this.bookingRepo.count({
+      where: {
+        providerId: booking.providerId,
+        status: BookingStatus.DECLINED,
+        declineReason: IsNull(),
+      },
+    });
+
+    if (unreasonedCount >= 5) {
+      const admins = await this.userRepo.find({ where: { role: 'admin' } });
+      await Promise.all(
+        admins.map((admin) =>
+          this.notificationsService.createNotification(
+            admin.id,
+            'system',
+            'Provider flagged — high unreasoned declines',
+            `${provider.businessName} has declined ${unreasonedCount} bookings without providing a reason. Review recommended.`,
+            booking.providerId,
+          ),
+        ),
+      );
+    } else if (unreasonedCount === 3) {
+      await this.notificationsService.createNotification(
+        provider.userId,
+        'system',
+        'Reminder: Please explain booking declines',
+        'You have declined 3 bookings without providing a reason. Owners appreciate knowing why — and repeated unexplained declines may lead to account review.',
+      );
+    }
 
     return booking;
   }
