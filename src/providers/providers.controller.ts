@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -15,6 +16,7 @@ import type { Request } from 'express';
 import { ProvidersService } from './providers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guards';
+import { EmailVerifiedGuard } from '../auth/guards/email-verified.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UpdateProviderDto } from './dto/update-provider.dto';
 import { OnboardProviderDto } from './dto/onboard-provider.dto';
@@ -33,16 +35,30 @@ export class ProvidersController {
     @Query('lng') lng?: string,
     @Query('radius') radius?: string,
   ) {
-    const latNum = parseFloat(lat ?? '');
-    const lngNum = parseFloat(lng ?? '');
-    if (!isNaN(latNum) && !isNaN(lngNum)) {
-      const r = parseFloat(radius ?? '25');
-      return this.providersService.findNearby(latNum, lngNum, isNaN(r) ? 25 : r);
+    if (lat === undefined && lng === undefined && radius === undefined) {
+      return this.providersService.findAll();
     }
-    return this.providersService.findAll();
+    const latNum = lat?.trim() ? Number(lat) : NaN;
+    const lngNum = lng?.trim() ? Number(lng) : NaN;
+    const radiusKm =
+      radius === undefined ? 25 : radius.trim() ? Number(radius) : NaN;
+    if (
+      !Number.isFinite(latNum) ||
+      Math.abs(latNum) > 90 ||
+      !Number.isFinite(lngNum) ||
+      Math.abs(lngNum) > 180 ||
+      !Number.isFinite(radiusKm) ||
+      radiusKm < 0
+    ) {
+      throw new BadRequestException(
+        'Provide valid lat, lng and a non-negative radius in kilometres',
+      );
+    }
+    return this.providersService.findNearby(latNum, lngNum, radiusKm);
   }
 
   @Post('onboard')
+  @Roles('provider')
   onboard(
     @Req() req: Request & { user: { id: string } },
     @Body() dto: OnboardProviderDto,
@@ -108,8 +124,12 @@ export class ProvidersController {
 
   // Ensures the provider's Stream Chat user exists before opening a DM channel.
   @Post(':id/init-chat')
-  initChat(@Param('id', ParseUUIDPipe) id: string) {
-    return this.providersService.initChatForProvider(id);
+  @UseGuards(EmailVerifiedGuard)
+  initChat(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: Request & { user: { id: string } },
+  ) {
+    return this.providersService.initChatForProvider(id, req.user.id);
   }
 
   @Get(':id')

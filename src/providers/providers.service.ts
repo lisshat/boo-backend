@@ -1,10 +1,11 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Provider, VerificationStatus } from './providers.entity';
 import { ServiceOffering, ServiceCategory } from './service-offering.entity';
 import { ProviderAvailability } from './provider-availability.entity';
@@ -15,6 +16,7 @@ import { UpdateServiceDto } from '../services/dto/update-service.dto';
 import { CreateServiceDto } from '../services/dto/create-service.dto';
 import { User } from '../users/user.entity';
 import { StreamService } from '../stream/stream.service';
+import { Booking } from '../bookings/bookings.entity';
 
 @Injectable()
 export class ProvidersService {
@@ -27,6 +29,8 @@ export class ProvidersService {
     private readonly availabilityRepo: Repository<ProviderAvailability>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Booking)
+    private readonly bookingRepo: Repository<Booking>,
     private readonly streamService: StreamService,
   ) {}
 
@@ -36,7 +40,10 @@ export class ProvidersService {
     verificationStatus: string,
     isVerified: boolean,
   ): number {
-    if (isVerified === true || verificationStatus === VerificationStatus.APPROVED) {
+    if (
+      isVerified === true ||
+      verificationStatus === VerificationStatus.APPROVED
+    ) {
       return 1.0;
     }
     if (verificationStatus === VerificationStatus.PENDING) {
@@ -61,7 +68,15 @@ export class ProvidersService {
     lat2: number | null,
     lng2: number | null,
   ): number {
-    if (lat2 == null || lng2 == null) return Infinity;
+    if (
+      lat2 == null ||
+      lng2 == null ||
+      !Number.isFinite(lat2) ||
+      !Number.isFinite(lng2) ||
+      Math.abs(lat2) > 90 ||
+      Math.abs(lng2) > 180
+    )
+      return Infinity;
     const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -70,7 +85,8 @@ export class ProvidersService {
       Math.cos((lat1 * Math.PI) / 180) *
         Math.cos((lat2 * Math.PI) / 180) *
         Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const clamped = Math.max(0, Math.min(1, a));
+    return R * 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped));
   }
 
   private sortByRecommended(
@@ -102,63 +118,126 @@ export class ProvidersService {
       }
       // 4. distance ASC (only when caller has a position)
       if (lat != null && lng != null) {
-        const dA = this.haversineKm(lat, lng, Number(a.latitude), Number(a.longitude));
-        const dB = this.haversineKm(lat, lng, Number(b.latitude), Number(b.longitude));
+        const dA = this.haversineKm(
+          lat,
+          lng,
+          a.latitude == null ? null : Number(a.latitude),
+          a.longitude == null ? null : Number(a.longitude),
+        );
+        const dB = this.haversineKm(
+          lat,
+          lng,
+          b.latitude == null ? null : Number(b.latitude),
+          b.longitude == null ? null : Number(b.longitude),
+        );
         if (dA !== dB) return dA - dB;
       }
       return 0;
     });
   }
 
-  // ── Listing queries ──────────────────────────────────────────────────────────
-
-  async findAll(): Promise<(Provider & { recommendedScore: number })[]> {
-    const providers = await this.providerRepo.find({
-      where: { verificationStatus: Not(VerificationStatus.REJECTED) },
-      relations: ['services'],
-    });
-    return this.sortByRecommended(providers);
+  private discoveryShape(
+    provider: Provider & { recommendedScore?: number },
+    lat?: number,
+    lng?: number,
+  ) {
+    const { latitude, longitude, userId, ...safe } = provider;
+    const distanceKm =
+      lat != null && lng != null
+        ? this.haversineKm(
+            lat,
+            lng,
+            latitude == null ? null : Number(latitude),
+            longitude == null ? null : Number(longitude),
+          )
+        : undefined;
+    return {
+      ...safe,
+      ...(distanceKm != null && Number.isFinite(distanceKm)
+        ? { distanceKm: Number(distanceKm.toFixed(2)) }
+        : {}),
+    };
   }
 
-  async findNearby(
-    lat: number,
-    lng: number,
-    radiusKm: number,
-  ): Promise<(Provider & { recommendedScore: number })[]> {
+  // ── Listing queries ──────────────────────────────────────────────────────────
+
+  async findAll(): Promise<any[]> {
+    const providers = await this.providerRepo
+      .createQueryBuilder('provider')
+      .innerJoin(
+        User,
+        'user',
+        'user.id = provider.user_id AND user.email_verified_at IS NOT NULL',
+      )
+      .leftJoinAndSelect('provider.services', 'services')
+      .where('provider.verification_status != :rejected', {
+        rejected: VerificationStatus.REJECTED,
+      })
+      .getMany();
+    return this.sortByRecommended(providers).map((provider) =>
+      this.discoveryShape(provider),
+    );
+  }
+
+  async findNearby(lat: number, lng: number, radiusKm: number): Promise<any[]> {
     const qb = this.providerRepo
       .createQueryBuilder('p')
+      .innerJoin(
+        User,
+        'user',
+        'user.id = p.user_id AND user.email_verified_at IS NOT NULL',
+      )
       .leftJoinAndSelect('p.services', 'services')
       .where('p.verificationStatus != :rejected', {
         rejected: VerificationStatus.REJECTED,
       });
 
-    if (radiusKm > 0) {
+    if (radiusKm >= 0) {
       qb.andWhere(
-        `(p.latitude IS NULL OR p.longitude IS NULL OR
-          6371.0 * acos(LEAST(1.0,
+        `(p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+          AND p.latitude BETWEEN -90 AND 90
+          AND p.longitude BETWEEN -180 AND 180
+          AND 6371.0 * acos(GREATEST(-1.0, LEAST(1.0,
             cos(radians(:lat)) * cos(radians(p.latitude::double precision))
             * cos(radians(p.longitude::double precision) - radians(:lng))
             + sin(radians(:lat)) * sin(radians(p.latitude::double precision))
-          )) <= :radius)`,
+          ))) <= :radius)`,
         { lat, lng, radius: radiusKm },
       );
     }
 
     const providers = await qb.getMany();
-    return this.sortByRecommended(providers, lat, lng);
+    return this.sortByRecommended(providers, lat, lng).map((provider) =>
+      this.discoveryShape(provider, lat, lng),
+    );
   }
 
-  async findOne(id: string): Promise<Provider> {
-    const provider = await this.providerRepo.findOne({ where: { id } });
+  async findOne(id: string): Promise<any> {
+    const provider = await this.providerRepo
+      .createQueryBuilder('provider')
+      .innerJoin(
+        User,
+        'user',
+        'user.id = provider.user_id AND user.email_verified_at IS NOT NULL',
+      )
+      .leftJoinAndSelect('provider.services', 'services')
+      .where('provider.profile_id = :id', { id })
+      .getOne();
     if (!provider) throw new NotFoundException('Provider not found');
-    return provider;
+    return this.discoveryShape(provider);
   }
 
   async findVerified(): Promise<Provider[]> {
-    return this.providerRepo.find({
-      where: { isVerified: true },
-      order: { averageRating: 'DESC' },
-    });
+    return this.providerRepo
+      .createQueryBuilder('provider')
+      .innerJoin(
+        User,
+        'user',
+        'user.id = provider.user_id AND user.email_verified_at IS NOT NULL',
+      )
+      .where('provider.is_verified = true')
+      .orderBy('provider.average_rating', 'DESC')
+      .getMany();
   }
 
   async findByUserId(userId: string): Promise<Provider> {
@@ -186,6 +265,8 @@ export class ProvidersService {
       businessName: dto.businessName,
       bio: dto.bio ?? null,
       location: dto.location ?? null,
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
       verificationStatus: VerificationStatus.PENDING,
     });
     const saved = await this.providerRepo.save(profile);
@@ -271,19 +352,67 @@ export class ProvidersService {
     });
   }
 
-  async getProviderAvailability(profileId: string): Promise<ProviderAvailability[]> {
+  async getProviderAvailability(
+    profileId: string,
+  ): Promise<ProviderAvailability[]> {
     return this.availabilityRepo.find({
       where: { profileId },
       order: { dayOfWeek: 'ASC' },
     });
   }
 
-  async initChatForProvider(profileId: string): Promise<{ userId: string }> {
-    const provider = await this.findOne(profileId);
-    const user = await this.userRepo.findOne({ where: { id: provider.userId } });
-    if (user) {
-      await this.streamService.upsertStreamUser(user.id, user.fullName, user.role);
-    }
-    return { userId: provider.userId };
+  async initChatForProvider(
+    profileId: string,
+    requesterId: string,
+  ): Promise<{ channelId: string; channelType: 'messaging' }> {
+    const provider = await this.providerRepo.findOne({
+      where: { id: profileId },
+    });
+    if (!provider) throw new NotFoundException('Provider not found');
+    const user = await this.userRepo.findOne({
+      where: { id: provider.userId },
+    });
+    if (!user) throw new NotFoundException('Provider user not found');
+    if (user.role !== 'provider')
+      throw new ForbiddenException('Target user is not a provider');
+    if (
+      user.isBanned ||
+      !user.emailVerifiedAt ||
+      provider.verificationStatus === VerificationStatus.REJECTED
+    )
+      throw new ForbiddenException(
+        'This provider is unavailable for new chats',
+      );
+    const requester = await this.userRepo.findOne({
+      where: { id: requesterId },
+    });
+    if (!requester) throw new NotFoundException('User not found');
+    if (requester.role !== 'owner')
+      throw new ForbiddenException('Only owners can start provider chats');
+    await this.streamService.upsertStreamUser(
+      requester.id,
+      requester.fullName,
+      requester.role,
+    );
+    await this.streamService.upsertStreamUser(
+      user.id,
+      user.fullName,
+      user.role,
+    );
+    const memberIds = [requester.id, user.id].sort();
+    const channelId = await this.streamService.resolveOwnerProviderChannel(
+      requester.id,
+      user.id,
+    );
+    const createdChannelId = await this.streamService.createDirectChannel(
+      channelId,
+      memberIds,
+      requester.id,
+      {
+        providerProfileId: provider.id,
+        providerVerificationStatus: provider.verificationStatus,
+      },
+    );
+    return { channelId: createdChannelId, channelType: 'messaging' };
   }
 }

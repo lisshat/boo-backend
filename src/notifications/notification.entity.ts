@@ -1,4 +1,27 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+} from 'typeorm';
+
+export enum NotificationType {
+  BOOKING_REQUEST = 'booking_request',
+  BOOKING_ACCEPTED = 'booking_accepted',
+  BOOKING_DECLINED = 'booking_declined',
+  BOOKING_CANCELLED = 'booking_cancelled',
+  BOOKING_RESCHEDULED = 'booking_rescheduled',
+  BOOKING_COMPLETED = 'booking_completed',
+  REVIEW_SUBMITTED = 'review_submitted',
+  REVIEW_REPLIED = 'review_replied',
+  VERIFICATION_SUBMITTED = 'verification_submitted',
+  VERIFICATION_APPROVED = 'verification_approved',
+  VERIFICATION_REJECTED = 'verification_rejected',
+  ACCOUNT_SUSPENDED = 'account_suspended',
+  ACCOUNT_REINSTATED = 'account_reinstated',
+  ADMIN_WARNING = 'admin_warning',
+  SYSTEM = 'system',
+}
 
 @Entity('notifications')
 export class Notification {
@@ -9,7 +32,7 @@ export class Notification {
   userId: string;
 
   @Column({ type: 'varchar' })
-  type: string;
+  type: NotificationType | string;
 
   @Column({ type: 'text' })
   title: string;

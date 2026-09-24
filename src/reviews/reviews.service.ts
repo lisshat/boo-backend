@@ -12,6 +12,7 @@ import { Provider } from '../providers/providers.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReplyReviewDto } from './dto/reply-review.dto';
+import { NotificationType } from '../notifications/notification.entity';
 
 @Injectable()
 export class ReviewsService {
@@ -26,6 +27,10 @@ export class ReviewsService {
   ) {}
 
   async createReview(ownerId: string, dto: CreateReviewDto): Promise<Review> {
+    const normalizedText = dto.text?.trim();
+    if (dto.text !== undefined && !normalizedText) {
+      throw new BadRequestException('Review text cannot be blank');
+    }
     const booking = await this.bookingRepo.findOne({
       where: { bookingId: dto.bookingId, ownerId },
     });
@@ -34,24 +39,18 @@ export class ReviewsService {
       throw new BadRequestException('Can only review completed bookings');
 
     // One review per owner per provider — stricter than per-booking
-    const existingForProvider = await this.reviewRepo.findOne({
-      where: { ownerId, providerId: booking.providerId },
-    });
-    if (existingForProvider) {
-      throw new ConflictException('You have already reviewed this provider');
-    }
-
     const existing = await this.reviewRepo.findOne({
       where: { bookingId: dto.bookingId },
     });
-    if (existing) throw new ConflictException('You have already reviewed this booking');
+    if (existing)
+      throw new ConflictException('You have already reviewed this booking');
 
     const review = this.reviewRepo.create({
       bookingId: dto.bookingId,
       ownerId,
       providerId: booking.providerId,
       rating: dto.rating,
-      text: dto.text ?? null,
+      text: normalizedText ?? null,
     });
     await this.reviewRepo.save(review);
 
@@ -63,7 +62,7 @@ export class ReviewsService {
     if (provider) {
       await this.notificationsService.createNotification(
         provider.userId,
-        'system',
+        NotificationType.REVIEW_SUBMITTED,
         'New Review',
         `You received a ${dto.rating}-star review!`,
         review.reviewId,
@@ -73,34 +72,52 @@ export class ReviewsService {
     return review;
   }
 
-  async getProviderReviews(profileId: string): Promise<Review[]> {
-    return this.reviewRepo.find({
+  async getProviderReviews(profileId: string): Promise<any[]> {
+    const reviews = await this.reviewRepo.find({
       where: { providerId: profileId },
       relations: ['owner'],
       order: { createdAt: 'DESC' },
     });
+    return reviews.map(({ owner, ...review }) => ({
+      ...review,
+      verifiedBooking: true,
+      owner: owner ? { id: owner.id, fullName: owner.fullName } : null,
+    }));
   }
 
   // Provider sees their own reviews via GET /reviews/provider/me
-  async getMyProviderReviews(userId: string): Promise<Review[]> {
+  async getMyProviderReviews(userId: string): Promise<any[]> {
     const provider = await this.providerRepo.findOne({ where: { userId } });
     if (!provider) throw new NotFoundException('Provider not found');
-    return this.reviewRepo.find({
+    const reviews = await this.reviewRepo.find({
       where: { providerId: provider.id },
       relations: ['owner'],
       order: { createdAt: 'DESC' },
     });
+    return reviews.map(({ owner, ...review }) => ({
+      ...review,
+      verifiedBooking: true,
+      owner: owner ? { id: owner.id, fullName: owner.fullName } : null,
+    }));
   }
 
   // Owner sees reviews they've written — used to know which bookings are already reviewed
   async getMyOwnerReviews(ownerId: string): Promise<Review[]> {
-    return this.reviewRepo.find({
+    const reviews = await this.reviewRepo.find({
       where: { ownerId },
       order: { createdAt: 'DESC' },
     });
+    return reviews.map((review) => ({
+      ...review,
+      verifiedBooking: true,
+    })) as Review[];
   }
 
-  async replyToReview(reviewId: string, userId: string, dto: ReplyReviewDto): Promise<Review> {
+  async replyToReview(
+    reviewId: string,
+    userId: string,
+    dto: ReplyReviewDto,
+  ): Promise<Review> {
     const provider = await this.providerRepo.findOne({ where: { userId } });
     if (!provider) throw new NotFoundException('Provider not found');
 
@@ -116,7 +133,7 @@ export class ReviewsService {
     // Notify the owner that the provider replied
     await this.notificationsService.createNotification(
       review.ownerId,
-      'system',
+      NotificationType.REVIEW_REPLIED,
       'Provider replied to your review',
       `Your review received a response.`,
       reviewId,

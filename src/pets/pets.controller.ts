@@ -1,9 +1,21 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { PetsService } from './pets.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guards';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('pets')
@@ -11,6 +23,8 @@ export class PetsController {
   constructor(private readonly petsService: PetsService) {}
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles('owner')
   create(
     @Req() req: Request & { user: { id: string } },
     @Body() dto: CreatePetDto,

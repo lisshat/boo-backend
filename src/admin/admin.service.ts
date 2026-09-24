@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking, BookingStatus } from '../bookings/bookings.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/notification.entity';
 import { Provider, VerificationStatus } from '../providers/providers.entity';
 import { ServiceOffering } from '../providers/service-offering.entity';
 import { Review } from '../reviews/review.entity';
@@ -19,6 +21,7 @@ import {
 import { AdminAuditLog } from './admin-audit-log.entity';
 import { ReviewVerificationDto } from './dto/review-verification.dto';
 import { UpdateUserBanDto } from './dto/update-user-ban.dto';
+import { WarnUserDto } from './dto/warn-user.dto';
 
 type BookingReportStatus = BookingStatus | 'all';
 
@@ -195,40 +198,51 @@ export class AdminService {
     });
     if (!provider) throw new NotFoundException('Provider profile not found');
 
+    let providerNotificationType: NotificationType | null = null;
+    let providerNotificationTitle = '';
+    let providerNotificationMessage = '';
+
     if (anyRejected) {
       await this.providersRepo.update(provider.id, {
         verificationStatus: VerificationStatus.REJECTED,
         isVerified: false,
       });
-      const user = await this.usersRepo.findOne({ where: { id: provider.userId } });
+      const user = await this.usersRepo.findOne({
+        where: { id: provider.userId },
+      });
       if (user) {
-        await this.streamService.upsertStreamUser(user.id, user.fullName, user.role, false);
+        await this.streamService.upsertStreamUser(
+          user.id,
+          user.fullName,
+          user.role,
+          false,
+        );
       }
-      await this.notificationsService.createNotification(
-        provider.userId,
-        'verification_rejected',
-        'Verification unsuccessful',
-        `Your documents were not approved. Reason: ${
-          dto.adminNotes ?? 'No reason provided'
-        }. Please resubmit with correct documents.`,
-        saved.docId,
-      );
+      providerNotificationType = NotificationType.VERIFICATION_REJECTED;
+      providerNotificationTitle = 'Verification unsuccessful';
+      providerNotificationMessage = `Your documents were not approved. Reason: ${
+        dto.adminNotes ?? 'No reason provided'
+      }. Please resubmit with correct documents.`;
     } else if (allApproved) {
       await this.providersRepo.update(provider.id, {
         verificationStatus: VerificationStatus.APPROVED,
         isVerified: true,
       });
-      const user = await this.usersRepo.findOne({ where: { id: provider.userId } });
+      const user = await this.usersRepo.findOne({
+        where: { id: provider.userId },
+      });
       if (user) {
-        await this.streamService.upsertStreamUser(user.id, user.fullName, user.role, true);
+        await this.streamService.upsertStreamUser(
+          user.id,
+          user.fullName,
+          user.role,
+          true,
+        );
       }
-      await this.notificationsService.createNotification(
-        provider.userId,
-        'verification_approved',
-        'Your account is verified ✓',
-        'Congratulations! You now have the Boo Verified badge. Clients will see you first in search results.',
-        saved.docId,
-      );
+      providerNotificationType = NotificationType.VERIFICATION_APPROVED;
+      providerNotificationTitle = 'Your account is verified ✓';
+      providerNotificationMessage =
+        'Congratulations! You now have the Boo Verified badge. Clients will see you first in search results.';
     }
 
     await this.logAdminAction(
@@ -242,6 +256,16 @@ export class AdminService {
         admin_notes: dto.adminNotes ?? null,
       },
     );
+
+    if (providerNotificationType) {
+      await this.notificationsService.createNotification(
+        provider.userId,
+        providerNotificationType,
+        providerNotificationTitle,
+        providerNotificationMessage,
+        saved.docId,
+      );
+    }
 
     return saved;
   }
@@ -292,24 +316,13 @@ export class AdminService {
     if (user.role === 'admin')
       throw new ForbiddenException('Cannot ban another admin');
 
-    await this.usersRepo.update(user.id, { isBanned: dto.isBanned });
-    if (dto.isBanned) {
-      await this.notificationsService.createNotification(
-        user.id,
-        'system',
-        'Account suspended',
-        'Your Boo account has been suspended due to policy violations. Contact support@boo.co.ke for assistance.',
-      );
-    } else {
-      await this.notificationsService.createNotification(
-        user.id,
-        'system',
-        'Account Reinstated',
-        'Your Boo account has been reinstated. You can now log in and use the platform again.',
-      );
+    const reason = dto.reason?.trim();
+    if (dto.isBanned && (!reason || reason.length < 3)) {
+      throw new BadRequestException('A trimmed suspension reason is required');
     }
 
-    await this.logAdminAction(
+    await this.usersRepo.update(user.id, { isBanned: dto.isBanned });
+    const auditEntry = await this.logAdminAction(
       adminId,
       dto.isBanned ? 'user_banned' : 'user_unbanned',
       'user',
@@ -318,7 +331,21 @@ export class AdminService {
         full_name: user.fullName,
         email: user.email,
         role: user.role,
+        ...(dto.reportId ? { report_id: dto.reportId } : {}),
+        ...(dto.isBanned ? { reason_category: 'admin_moderation' } : {}),
       },
+    );
+
+    await this.notificationsService.createNotification(
+      user.id,
+      dto.isBanned
+        ? NotificationType.ACCOUNT_SUSPENDED
+        : NotificationType.ACCOUNT_REINSTATED,
+      dto.isBanned ? 'Account suspended' : 'Account Reinstated',
+      dto.isBanned
+        ? 'Your Boo account has been suspended due to policy violations. Contact support@boo.co.ke for assistance.'
+        : 'Your Boo account has been reinstated. You can now log in and use the platform again.',
+      auditEntry.logId,
     );
 
     return {
@@ -335,25 +362,37 @@ export class AdminService {
     };
   }
 
-  async warnUser(userId: string, adminId: string) {
+  async warnUser(userId: string, adminId: string, dto: WarnUserDto) {
     const user = await this.usersRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     if (user.role === 'admin')
       throw new ForbiddenException('Cannot warn another admin');
+    const message = dto.message.trim();
+    if (message.length < 3) {
+      throw new BadRequestException('A warning message is required');
+    }
+
+    const auditEntry = await this.logAdminAction(
+      adminId,
+      'user_warned',
+      'user',
+      user.id,
+      {
+        full_name: user.fullName,
+        email: user.email,
+        role: user.role,
+        reason: 'excessive_cancellations',
+        ...(dto.reportId ? { report_id: dto.reportId } : {}),
+      },
+    );
 
     await this.notificationsService.createNotification(
       user.id,
-      'system',
+      NotificationType.ADMIN_WARNING,
       'Account warning',
-      'Warning: Your account has been flagged for excessive cancellations. Further violations may result in suspension.',
+      message,
+      auditEntry.logId,
     );
-
-    await this.logAdminAction(adminId, 'user_warned', 'user', user.id, {
-      full_name: user.fullName,
-      email: user.email,
-      role: user.role,
-      reason: 'excessive_cancellations',
-    });
 
     return {
       id: user.id,
@@ -976,7 +1015,8 @@ export class AdminService {
     const totalPetOwners = distributionRows
       .filter((r: { pet_count: string }) => Number(r.pet_count) > 0)
       .reduce(
-        (sum: number, r: { owner_count: string }) => sum + Number(r.owner_count),
+        (sum: number, r: { owner_count: string }) =>
+          sum + Number(r.owner_count),
         0,
       );
     const ownersWithNoPets = Number(

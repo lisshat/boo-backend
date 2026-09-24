@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Patch, Param, Body, Request, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Patch,
+  Param,
+  Body,
+  Request,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guards';
@@ -6,6 +16,8 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { DeclineBookingDto } from './dto/decline-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
+import { PaymentRecordDto } from './dto/payment-record.dto';
+import { EmailVerifiedGuard } from '../auth/guards/email-verified.guard';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('bookings')
@@ -14,6 +26,7 @@ export class BookingsController {
 
   @Roles('owner')
   @Post()
+  @UseGuards(EmailVerifiedGuard)
   create(@Request() req: any, @Body() dto: CreateBookingDto) {
     return this.bookingsService.createBooking(req.user.id as string, dto);
   }
@@ -48,6 +61,12 @@ export class BookingsController {
     return this.bookingsService.getProviderBookings(req.user.id as string);
   }
 
+  @Roles('provider')
+  @Post(':id/init-chat')
+  initChat(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
+    return this.bookingsService.initChatForBooking(id, req.user.id as string);
+  }
+
   @Roles('owner')
   @Post(':id/reschedule')
   reschedule(
@@ -55,7 +74,11 @@ export class BookingsController {
     @Request() req: any,
     @Body() dto: RescheduleBookingDto,
   ) {
-    return this.bookingsService.rescheduleBooking(id, req.user.id as string, dto.newDatetime);
+    return this.bookingsService.rescheduleBooking(
+      id,
+      req.user.id as string,
+      dto.newDatetime,
+    );
   }
 
   @Roles('owner')
@@ -77,12 +100,31 @@ export class BookingsController {
     @Request() req: any,
     @Body() dto: DeclineBookingDto,
   ) {
-    return this.bookingsService.declineBooking(id, req.user.id as string, dto.reason);
+    return this.bookingsService.declineBooking(
+      id,
+      req.user.id as string,
+      dto.reason,
+    );
   }
 
   @Roles('provider')
   @Patch(':id/complete')
   complete(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
     return this.bookingsService.completeBooking(id, req.user.id as string);
+  }
+
+  @Roles('provider')
+  @Patch(':id/payment-record')
+  paymentRecord(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
+    @Body() dto: PaymentRecordDto,
+  ) {
+    return this.bookingsService.recordPayment(
+      id,
+      req.user.id as string,
+      dto.received,
+      dto.paymentMethod,
+    );
   }
 }

@@ -20,16 +20,22 @@ import { VerificationDocument } from './verification/verification-document.entit
 import { VerificationModule } from './verification/verification.module';
 import { AdminModule } from './admin/admin.module';
 import { AdminAuditLog } from './admin/admin-audit-log.entity';
-import { PasswordResetToken } from './auth/password-reset-token.entity';
+import { PasswordResetCode } from './auth/password-reset-code.entity';
 import { OwnerProfile } from './owners/owner-profile.entity';
 import { OwnersModule } from './owners/owners.module';
+import { Report } from './reports/report.entity';
+import { ReportsModule } from './reports/reports.module';
+import { EmailVerificationCode } from './auth/email-verification-code.entity';
+import { RevenueCatModule } from './revenuecat/revenuecat.module';
+import { RevenueCatWebhookEvent } from './revenuecat/revenuecat-webhook-event.entity';
+import { UserEntitlement } from './revenuecat/user-entitlement.entity';
 
 @Module({
   imports: [
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: 'src/.env',
+      envFilePath: '.env',
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -47,11 +53,22 @@ import { OwnersModule } from './owners/owners.module';
           Review,
           VerificationDocument,
           AdminAuditLog,
-          PasswordResetToken,
+          PasswordResetCode,
+          EmailVerificationCode,
+          RevenueCatWebhookEvent,
+          UserEntitlement,
           OwnerProfile,
+          Report,
         ],
-        synchronize: false,
-        ssl: { rejectUnauthorized: false },
+        // Opt in only for development database setup; production uses migrations.
+        synchronize:
+          config.get<string>('NODE_ENV') === 'development' &&
+          config.get<string>('DATABASE_SYNCHRONIZE') === 'true',
+        // Hosted databases opt in with DATABASE_SSL=true; local PostgreSQL defaults to no SSL.
+        ssl:
+          config.get<string>('DATABASE_SSL') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
       }),
     }),
     AuthModule,
@@ -63,6 +80,8 @@ import { OwnersModule } from './owners/owners.module';
     VerificationModule,
     AdminModule,
     OwnersModule,
+    ReportsModule,
+    RevenueCatModule,
   ],
 })
 export class AppModule {}

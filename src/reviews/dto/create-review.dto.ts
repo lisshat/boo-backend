@@ -1,4 +1,14 @@
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  MinLength,
+  Min,
+} from 'class-validator';
 
 export class CreateReviewDto {
   @IsUUID()
@@ -10,6 +20,9 @@ export class CreateReviewDto {
   rating!: number;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
   text?: string;
 }

@@ -20,6 +20,7 @@ import { VerificationDocumentStatus } from '../verification/verification-documen
 import { AdminService } from './admin.service';
 import { ReviewVerificationDto } from './dto/review-verification.dto';
 import { UpdateUserBanDto } from './dto/update-user-ban.dto';
+import { WarnUserDto } from './dto/warn-user.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -77,8 +78,9 @@ export class AdminController {
   warnUser(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: Request & { user: { id: string } },
+    @Body() dto: WarnUserDto,
   ) {
-    return this.adminService.warnUser(id, req.user.id);
+    return this.adminService.warnUser(id, req.user.id, dto);
   }
 
   @Get('audit-log')

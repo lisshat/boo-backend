@@ -20,6 +20,18 @@ export enum BookingStatus {
   RESCHEDULED = 'rescheduled',
 }
 
+export enum PaymentStatus {
+  NOT_RECORDED = 'not_recorded',
+  PROVIDER_RECORDED_RECEIVED = 'provider_recorded_received',
+}
+
+export enum PaymentMethod {
+  CASH = 'cash',
+  MPESA = 'mpesa',
+  BANK_TRANSFER = 'bank_transfer',
+  OTHER = 'other',
+}
+
 @Entity('bookings')
 export class Booking {
   @PrimaryGeneratedColumn('uuid', { name: 'booking_id' })
@@ -54,6 +66,66 @@ export class Booking {
 
   @Column({ name: 'rescheduled_from', type: 'uuid', nullable: true })
   rescheduledFrom!: string | null;
+
+  @Column({
+    name: 'agreed_amount',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
+  agreedAmount!: number | null;
+
+  @Column({ type: 'varchar', length: 3, default: 'KES' })
+  currency!: string;
+
+  @Column({
+    name: 'pricing_unit_snapshot',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
+  pricingUnitSnapshot!: string | null;
+
+  @Column({ name: 'duration_minutes_snapshot', type: 'int', nullable: true })
+  durationMinutesSnapshot!: number | null;
+
+  @Column({
+    name: 'snapshot_source',
+    type: 'varchar',
+    length: 30,
+    default: 'booking_time',
+  })
+  snapshotSource!: string;
+
+  @Column({
+    name: 'payment_status',
+    type: 'varchar',
+    length: 40,
+    default: PaymentStatus.NOT_RECORDED,
+  })
+  paymentStatus!: PaymentStatus;
+
+  @Column({
+    name: 'payment_method',
+    type: 'varchar',
+    length: 30,
+    nullable: true,
+  })
+  paymentMethod!: PaymentMethod | null;
+
+  @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
+  paidAt!: Date | null;
+
+  @Column({ name: 'provider_recorded_at', type: 'timestamptz', nullable: true })
+  providerRecordedAt!: Date | null;
+
+  @Column({
+    name: 'payment_record_reversed_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  paymentRecordReversedAt!: Date | null;
 
   @ManyToOne(() => Provider)
   @JoinColumn({ name: 'provider_id' })

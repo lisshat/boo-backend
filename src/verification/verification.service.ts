@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Provider, VerificationStatus } from '../providers/providers.entity';
@@ -9,6 +13,7 @@ import {
   VerificationDocument,
   VerificationDocumentStatus,
 } from './verification-document.entity';
+import { NotificationType } from '../notifications/notification.entity';
 
 @Injectable()
 export class VerificationService {
@@ -52,7 +57,7 @@ export class VerificationService {
       admins.map((admin) =>
         this.notificationsService.createNotification(
           admin.id,
-          'system',
+          NotificationType.VERIFICATION_SUBMITTED,
           'New verification submission',
           `${provider.businessName} has submitted documents for review`,
           saved.docId,

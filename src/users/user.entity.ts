@@ -16,7 +16,7 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column({ name: 'password_hash' })
+  @Column({ name: 'password_hash', select: false })
   passwordHash: string;
 
   @Column({ name: 'full_name', nullable: true })
@@ -27,6 +27,12 @@ export class User {
 
   @Column({ name: 'is_banned', default: false })
   isBanned: boolean;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
+
+  @Column({ name: 'auth_version', type: 'integer', default: 0 })
+  authVersion: number;
 
   @Column({ type: 'varchar', nullable: true })
   location: string | null;

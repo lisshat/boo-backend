@@ -6,6 +6,7 @@ import { User } from '../users/user.entity';
 import { VerificationController } from './verification.controller';
 import { VerificationDocument } from './verification-document.entity';
 import { VerificationService } from './verification.service';
+import { EmailVerifiedGuard } from '../auth/guards/email-verified.guard';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { VerificationService } from './verification.service';
     NotificationsModule,
   ],
   controllers: [VerificationController],
-  providers: [VerificationService],
+  providers: [VerificationService, EmailVerifiedGuard],
   exports: [VerificationService],
 })
 export class VerificationModule {}
